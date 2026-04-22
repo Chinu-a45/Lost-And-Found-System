@@ -1,14 +1,10 @@
-import { Search, Menu, Bell } from "lucide-react";
-import { formatDistanceToNow } from "date-fns";
+import { Search, Menu } from "lucide-react";
 
 export function Navbar({
   searchQuery,
   onSearchChange,
   onMenuClick,
   user,
-  notifications,
-  unreadCount,
-  onNotificationClick,
 }) {
   return (
     <nav className="sticky top-0 z-30 border-b border-white/10 bg-[#071017]/75 shadow-lg shadow-black/15 backdrop-blur-2xl">
@@ -55,46 +51,6 @@ export function Navbar({
           </div>
 
           <div className="flex items-center gap-3">
-            <div className="relative">
-              <button
-                onClick={onNotificationClick}
-                className="relative p-2.5 hover:bg-white/10 rounded-2xl transition-colors text-white border border-white/10 bg-white/[0.04]"
-                aria-label="Notifications"
-              >
-                <Bell className="w-5 h-5" />
-                {unreadCount > 0 && (
-                  <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-amber-400 text-[11px] text-slate-950 font-bold flex items-center justify-center">
-                    {unreadCount > 9 ? "9+" : unreadCount}
-                  </span>
-                )}
-              </button>
-
-              {notifications?.length > 0 && (
-                <div className="absolute right-0 mt-3 w-80 max-h-96 overflow-y-auto rounded-3xl border border-white/10 bg-[#071017]/95 backdrop-blur-2xl shadow-2xl p-3">
-                  <div className="mb-2 text-sm font-semibold text-white">Notifications</div>
-                  <div className="space-y-2">
-                    {notifications.map((notification) => (
-                      <button
-                        key={notification.id}
-                        onClick={() => onNotificationClick(notification)}
-                        className={`w-full text-left rounded-2xl border px-3 py-3 transition-colors ${
-                          notification.isRead
-                            ? "border-white/10 bg-white/[0.04]"
-                            : "border-teal-300/30 bg-teal-300/10"
-                        }`}
-                      >
-                        <div className="text-sm font-semibold text-white">{notification.title}</div>
-                        <div className="mt-1 text-xs text-slate-300">{notification.message}</div>
-                        <div className="mt-2 text-[11px] text-teal-200">
-                          {formatDistanceToNow(notification.timestamp, { addSuffix: true })}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
             {user && (
               <div className="flex items-center gap-2 sm:bg-white/[0.07] sm:backdrop-blur-md sm:px-3 sm:py-1.5 sm:rounded-full sm:border sm:border-white/10">
                 <img

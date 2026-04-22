@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Plus } from "lucide-react";
-import { io } from "socket.io-client";
 import { Navbar } from "./components/Navbar";
 import { Sidebar } from "./components/Sidebar";
 import { FilterTabs } from "./components/FilterTabs";
@@ -19,17 +18,10 @@ const normalizeItem = (item) => ({
   phone: item.phone || "",
 });
 
-const normalizeNotification = (notification) => ({
-  ...notification,
-  timestamp: new Date(notification.timestamp),
-});
-
 export default function App() {
   const [user, setUser] = useState(null);
   const [departments, setDepartments] = useState(["IIPS"]);
   const [items, setItems] = useState([]);
-  const [notifications, setNotifications] = useState([]);
-  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isLoadingItems, setIsLoadingItems] = useState(true);
   const [itemsError, setItemsError] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -78,32 +70,12 @@ export default function App() {
     }
   };
 
-  const loadNotifications = async (currentUserId) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/notifications?userId=${encodeURIComponent(currentUserId)}`);
-      const payload = await response.json();
-
-      if (!response.ok) {
-        throw new Error(payload.message || "Failed to load notifications");
-      }
-
-      setNotifications(
-        payload.map(normalizeNotification)
-      );
-    } catch (error) {
-      console.error("Error loading notifications:", error);
-    }
-  };
-
   useEffect(() => {
     const storedUser = localStorage.getItem("lostfound_user");
 
     if (storedUser) {
       setUser(JSON.parse(storedUser));
-    } else {
-      setIsAuthModalOpen(true);
     }
-
     loadConfig();
   }, []);
 
@@ -112,35 +84,6 @@ export default function App() {
       loadItems();
     }
   }, [user?.department]);
-
-  useEffect(() => {
-    if (!user?.id) {
-      setNotifications([]);
-      return;
-    }
-
-    loadNotifications(user.id);
-    const socket = io();
-
-    socket.emit("notifications:join", user.id);
-    socket.on("notification:new", (notification) => {
-      setNotifications((prevNotifications) => {
-        const normalized = normalizeNotification(notification);
-        const alreadyExists = prevNotifications.some((entry) => entry.id === normalized.id);
-
-        if (alreadyExists) {
-          return prevNotifications;
-        }
-
-        return [normalized, ...prevNotifications];
-      });
-    });
-
-    return () => {
-      socket.emit("notifications:leave", user.id);
-      socket.disconnect();
-    };
-  }, [user?.id]);
 
   const handleAuthSuccess = (userData) => {
     const normalizedUser = {
@@ -155,46 +98,8 @@ export default function App() {
   const handleSignOut = () => {
     localStorage.removeItem("lostfound_user");
     setUser(null);
-    setNotifications([]);
     setIsAuthModalOpen(true);
     setIsSidebarOpen(false);
-  };
-
-  const handleNotificationClick = async (notification) => {
-    if (!notification) {
-      setIsNotificationsOpen((current) => !current);
-      return;
-    }
-
-    if (!notification.isRead) {
-      try {
-        const response = await fetch(`${API_BASE_URL}/api/notifications/${notification.id}/read`, {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            userId: user.id,
-          }),
-        });
-
-        const payload = await response.json();
-
-        if (response.ok) {
-          setNotifications((prevNotifications) =>
-            prevNotifications.map((entry) =>
-              entry.id === notification.id
-                ? { ...entry, ...payload, timestamp: new Date(payload.timestamp) }
-                : entry
-            )
-          );
-        }
-      } catch (error) {
-        console.error("Failed to mark notification as read:", error);
-      }
-    }
-
-    setIsNotificationsOpen(false);
   };
 
   const handleDeleteAllRequests = async () => {
@@ -224,7 +129,6 @@ export default function App() {
       setItems([]);
       alert(payload.message);
       setIsSidebarOpen(false);
-      loadNotifications(user.id);
     } catch (error) {
       console.error("Failed to delete all requests:", error);
       alert(error.message || "Unable to delete all requests right now.");
@@ -257,7 +161,6 @@ export default function App() {
 
       setItems((prevItems) => prevItems.filter((item) => item.id !== id));
       setSelectedItem((current) => (current?.id === id ? null : current));
-      loadNotifications(user.id);
     } catch (error) {
       console.error("Failed to delete request:", error);
       alert(error.message || "Unable to delete this request right now.");
@@ -323,6 +226,7 @@ export default function App() {
   const filteredItems = items.filter((item) => {
     const matchesSearch =
       item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.location.toLowerCase().includes(searchQuery.toLowerCase());
 
@@ -342,7 +246,6 @@ export default function App() {
   const oldItems = filteredItems.filter(
     (item) => !item.isResolved && isOlderThan7Days(item.timestamp)
   );
-  const unreadCount = notifications.filter((notification) => !notification.isRead).length;
 
   function isOlderThan7Days(date) {
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
@@ -377,9 +280,6 @@ export default function App() {
         onSearchChange={setSearchQuery}
         onMenuClick={() => setIsSidebarOpen(true)}
         user={user}
-        notifications={isNotificationsOpen ? notifications : []}
-        unreadCount={unreadCount}
-        onNotificationClick={handleNotificationClick}
       />
 
       <Sidebar
