@@ -2,8 +2,8 @@ const mongoose = require("mongoose");
 const User = require("../models/User");
 const { createAvatarUrl, hashPassword } = require("../utils/auth");
 
-const ADMIN_EMAIL = "chindankushwaha72@gmail.com";
-const ADMIN_PASSWORD = "Chindan@225";
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "admin@example.com";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin123";
 
 async function seedAdminUser() {
   const normalizedEmail = ADMIN_EMAIL.toLowerCase();
