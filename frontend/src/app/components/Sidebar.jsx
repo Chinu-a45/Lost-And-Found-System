@@ -9,6 +9,7 @@ export function Sidebar({
   onViewChange,
   onSignOut,
   onDeleteAllRequests,
+  onProfileClick,
 }) {
   return (
     <AnimatePresence>
@@ -45,7 +46,9 @@ export function Sidebar({
                   <img
                     src={user.profileImage}
                     alt={user.name}
-                    className="w-12 h-12 rounded-full ring-2 ring-teal-300/70"
+                    className="w-12 h-12 rounded-full ring-2 ring-teal-300/70 cursor-pointer hover:opacity-80 transition-opacity"
+                    onClick={onProfileClick}
+                    title="Change Profile Picture"
                   />
                   <div>
                     <div className="font-semibold text-white">{user.name}</div>

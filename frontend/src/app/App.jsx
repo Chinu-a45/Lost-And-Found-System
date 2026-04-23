@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Plus } from "lucide-react";
+import { GoogleOAuthProvider } from "@react-oauth/google";
 import { Navbar } from "./components/Navbar";
 import { Sidebar } from "./components/Sidebar";
 import { FilterTabs } from "./components/FilterTabs";
@@ -8,8 +9,11 @@ import { ItemCard } from "./components/ItemCard";
 import { AddRequestModal } from "./components/AddRequestModal";
 import { AuthModal } from "./components/AuthModal";
 import { RequestDetailsModal } from "./components/RequestDetailsModal";
+import { ProfileSettingsModal } from "./components/ProfileSettingsModal";
 
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
 const API_BASE_URL = import.meta.env.VITE_API_URL || "";
+
 
 const normalizeItem = (item) => ({
   ...item,
@@ -30,6 +34,7 @@ export default function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
 
   const loadItems = async () => {
@@ -93,6 +98,11 @@ export default function App() {
     localStorage.setItem("lostfound_user", JSON.stringify(normalizedUser));
     setUser(normalizedUser);
     setIsAuthModalOpen(false);
+  };
+
+  const handleUserUpdate = (updatedUser) => {
+    localStorage.setItem("lostfound_user", JSON.stringify(updatedUser));
+    setUser(updatedUser);
   };
 
   const handleSignOut = () => {
@@ -254,12 +264,14 @@ export default function App() {
 
   if (!user) {
     return (
-      <AuthModal
-        isOpen={isAuthModalOpen}
-        onClose={() => {}}
-        onAuthSuccess={handleAuthSuccess}
-        departments={departments}
-      />
+      <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+        <AuthModal
+          isOpen={true}
+          onClose={() => {}}
+          onAuthSuccess={handleAuthSuccess}
+          departments={departments}
+        />
+      </GoogleOAuthProvider>
     );
   }
 
@@ -280,6 +292,7 @@ export default function App() {
         onSearchChange={setSearchQuery}
         onMenuClick={() => setIsSidebarOpen(true)}
         user={user}
+        onProfileClick={() => setIsProfileModalOpen(true)}
       />
 
       <Sidebar
@@ -290,6 +303,10 @@ export default function App() {
         onViewChange={setCurrentView}
         onSignOut={handleSignOut}
         onDeleteAllRequests={handleDeleteAllRequests}
+        onProfileClick={() => {
+          setIsSidebarOpen(false);
+          setIsProfileModalOpen(true);
+        }}
       />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative z-10">
@@ -414,6 +431,13 @@ export default function App() {
       />
 
       <RequestDetailsModal item={selectedItem} onClose={() => setSelectedItem(null)} />
+
+      <ProfileSettingsModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+        user={user}
+        onUpdateUser={handleUserUpdate}
+      />
     </div>
   );
 }

@@ -16,7 +16,12 @@ const userSchema = new mongoose.Schema(
     },
     passwordHash: {
       type: String,
-      required: true,
+      default: "",
+    },
+    googleId: {
+      type: String,
+      default: "",
+      trim: true,
     },
     profileImage: {
       type: String,

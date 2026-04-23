@@ -6,6 +6,7 @@ const Item = require("./models/Item");
 const Notification = require("./models/Notification");
 const { createAvatarUrl, hashPassword, verifyPassword } = require("./utils/auth");
 
+
 const app = express();
 const frontendDistPath = path.resolve(__dirname, "../../frontend/dist");
 const AVAILABLE_DEPARTMENTS = ["IIPS"];
@@ -139,6 +140,112 @@ app.post("/api/auth/login", async (req, res) => {
     return res.status(500).json({ message: "Unable to sign in right now" });
   }
 });
+
+app.post("/api/auth/google", async (req, res) => {
+  try {
+    const { accessToken, department } = req.body;
+
+    if (!accessToken) {
+      return res.status(400).json({ message: "Google access token is required" });
+    }
+
+    // Verify the access token by fetching Google's userinfo endpoint
+    const googleRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    if (!googleRes.ok) {
+      return res.status(401).json({ message: "Invalid Google token. Please try signing in again." });
+    }
+
+    const { sub: googleId, email, name, picture } = await googleRes.json();
+
+    if (!email) {
+      return res.status(400).json({ message: "Google account must have an email address" });
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+
+    // Find existing user by googleId or email
+    let user = await User.findOne({ $or: [{ googleId }, { email: normalizedEmail }] });
+
+    if (user) {
+      let changed = false;
+      // Link googleId if not already set (e.g. existing email user signing in via Google)
+      if (!user.googleId) {
+        user.googleId = googleId;
+        changed = true;
+      }
+      // Sync Google profile picture
+      if (picture && user.profileImage !== picture) {
+        user.profileImage = picture;
+        changed = true;
+      }
+      if (changed) {
+        await user.save();
+      }
+      return res.json(user.toJSON());
+    }
+
+    // New Google user — department is required to create the account
+    if (!department) {
+      return res.status(202).json({
+        message: "DEPARTMENT_REQUIRED",
+        email: normalizedEmail,
+        name,
+        picture,
+        googleId,
+      });
+    }
+
+    if (!AVAILABLE_DEPARTMENTS.includes(department)) {
+      return res.status(400).json({ message: "Invalid department selected" });
+    }
+
+    // Create new user
+    user = await User.create({
+      name: name?.trim() || normalizedEmail.split("@")[0],
+      email: normalizedEmail,
+      googleId,
+      passwordHash: "",
+      profileImage: picture || createAvatarUrl(name?.trim() || "", normalizedEmail),
+      authMethod: "google",
+      department,
+    });
+
+    return res.status(201).json(user.toJSON());
+  } catch (error) {
+    console.error("Google auth failed:", error);
+    return res.status(500).json({ message: "Google sign-in failed. Please try again." });
+  }
+});
+
+
+
+app.patch("/api/users/:id/profile-image", async (req, res) => {
+  try {
+    const { image } = req.body;
+    if (!image) {
+      return res.status(400).json({ message: "Image data is required" });
+    }
+
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // In a production app you would upload this base64 image to AWS S3, Cloudinary, etc.
+    // For this prototype, we'll just save the base64 string directly or the URL.
+    user.profileImage = image;
+    await user.save();
+
+    return res.json(user.toJSON());
+  } catch (error) {
+    console.error("Profile image update failed:", error);
+    return res.status(500).json({ message: "Failed to update profile image" });
+  }
+});
+
 
 app.get("/api/items", async (req, res) => {
   try {
@@ -364,12 +471,11 @@ app.patch("/api/notifications/:id/read", async (req, res) => {
 
 app.use(express.static(frontendDistPath));
 
-app.get("/{*splat}", (req, res, next) => {
-  if (req.path.startsWith("/api")) {
-    return next();
+app.use((req, res, next) => {
+  if (req.method === "GET" && !req.path.startsWith("/api")) {
+    return res.sendFile(path.join(frontendDistPath, "index.html"));
   }
-
-  return res.sendFile(path.join(frontendDistPath, "index.html"));
+  return next();
 });
 
 module.exports = app;

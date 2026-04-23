@@ -5,6 +5,7 @@ export function Navbar({
   onSearchChange,
   onMenuClick,
   user,
+  onProfileClick,
 }) {
   return (
     <nav className="sticky top-0 z-30 border-b border-white/10 bg-[#071017]/75 shadow-lg shadow-black/15 backdrop-blur-2xl">
@@ -52,7 +53,11 @@ export function Navbar({
 
           <div className="flex items-center gap-3">
             {user && (
-              <div className="flex items-center gap-2 sm:bg-white/[0.07] sm:backdrop-blur-md sm:px-3 sm:py-1.5 sm:rounded-full sm:border sm:border-white/10">
+              <div 
+                onClick={onProfileClick}
+                className="flex items-center gap-2 sm:bg-white/[0.07] sm:backdrop-blur-md sm:px-3 sm:py-1.5 sm:rounded-full sm:border sm:border-white/10 cursor-pointer hover:bg-white/[0.12] transition-colors"
+                title="Profile Settings"
+              >
                 <img
                   src={user.profileImage}
                   alt={user.name}
