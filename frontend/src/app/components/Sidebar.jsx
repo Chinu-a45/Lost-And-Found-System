@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from "motion/react";
-import { X, Home, FileText, LogOut, Trash2 } from "lucide-react";
+import { X, Home, FileText, LogOut, Trash2, Bell } from "lucide-react";
 
 export function Sidebar({
   isOpen,
@@ -10,6 +10,7 @@ export function Sidebar({
   onSignOut,
   onDeleteAllRequests,
   onProfileClick,
+  onEnableNotifications,
 }) {
   return (
     <AnimatePresence>
@@ -87,6 +88,14 @@ export function Sidebar({
               >
                 <FileText className="w-5 h-5" />
                 My Requests
+              </button>
+
+              <button
+                onClick={onEnableNotifications}
+                className="w-full flex items-center gap-3 px-4 py-3 mt-2 text-teal-300 hover:bg-teal-500/10 rounded-xl transition-colors"
+              >
+                <Bell className="w-5 h-5" />
+                Enable Notifications
               </button>
             </nav>
 

@@ -5,7 +5,16 @@ const User = require("./models/User");
 const Item = require("./models/Item");
 const Notification = require("./models/Notification");
 const { createAvatarUrl, hashPassword, verifyPassword } = require("./utils/auth");
+const webpush = require("web-push");
+const PushSubscription = require("./models/PushSubscription");
 
+if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+  webpush.setVapidDetails(
+    process.env.VAPID_SUBJECT || "mailto:admin@example.com",
+    process.env.VAPID_PUBLIC_KEY,
+    process.env.VAPID_PRIVATE_KEY
+  );
+}
 
 const app = express();
 const frontendDistPath = path.resolve(__dirname, "../../frontend/dist");
@@ -50,6 +59,35 @@ async function createNotificationsForUsers({ excludeUserId, title, message, type
     notifications.forEach((notification) => {
       io.to(`user:${notification.userId.toString()}`).emit("notification:new", notification.toJSON());
     });
+  }
+
+  // Web Push Notifications
+  try {
+    const userIds = users.map((u) => u._id);
+    const subscriptions = await PushSubscription.find({ userId: { $in: userIds } });
+
+    if (subscriptions.length > 0 && process.env.VAPID_PUBLIC_KEY) {
+      const payload = JSON.stringify({
+        title,
+        message,
+        url: "/",
+      });
+
+      const pushPromises = subscriptions.map((sub) => {
+        return webpush.sendNotification(sub.subscription, payload).catch((err) => {
+          if (err.statusCode === 404 || err.statusCode === 410) {
+            console.log("Subscription has expired or is invalid, removing:", sub._id);
+            return PushSubscription.findByIdAndDelete(sub._id);
+          } else {
+            console.error("Error sending push notification:", err);
+          }
+        });
+      });
+
+      await Promise.all(pushPromises);
+    }
+  } catch (error) {
+    console.error("Failed to send push notifications:", error);
   }
 }
 
@@ -466,6 +504,36 @@ app.patch("/api/notifications/:id/read", async (req, res) => {
   } catch (error) {
     console.error("Failed to mark notification as read:", error);
     return res.status(500).json({ message: "Unable to update notification right now" });
+  }
+});
+
+app.post("/api/notifications/subscribe", async (req, res) => {
+  try {
+    const { userId, subscription } = req.body;
+
+    if (!userId || !subscription) {
+      return res.status(400).json({ message: "User id and subscription are required" });
+    }
+
+    const existingSub = await PushSubscription.findOne({ "subscription.endpoint": subscription.endpoint });
+    
+    if (existingSub) {
+      if (existingSub.userId.toString() !== userId) {
+        existingSub.userId = userId;
+        await existingSub.save();
+      }
+      return res.status(200).json({ message: "Subscription already exists" });
+    }
+
+    await PushSubscription.create({
+      userId,
+      subscription,
+    });
+
+    return res.status(201).json({ message: "Subscribed successfully" });
+  } catch (error) {
+    console.error("Failed to subscribe to push notifications:", error);
+    return res.status(500).json({ message: "Failed to subscribe" });
   }
 });
 

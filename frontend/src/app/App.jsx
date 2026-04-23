@@ -10,9 +10,82 @@ import { AddRequestModal } from "./components/AddRequestModal";
 import { AuthModal } from "./components/AuthModal";
 import { RequestDetailsModal } from "./components/RequestDetailsModal";
 import { ProfileSettingsModal } from "./components/ProfileSettingsModal";
+import { Toaster, toast } from "sonner";
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
 const API_BASE_URL = import.meta.env.VITE_API_URL || "";
+const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY || "";
+
+function urlBase64ToUint8Array(base64String) {
+  if (!base64String) return new Uint8Array(0);
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/\-/g, "+").replace(/_/g, "/");
+
+  try {
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+
+    for (let i = 0; i < rawData.length; ++i) {
+      outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+  } catch (e) {
+    console.error("Failed to decode VAPID key", e);
+    return new Uint8Array(0);
+  }
+}
+
+const subscribeToPushNotifications = async (userId, isManual = false) => {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+    if (isManual) toast.error("Push notifications are not supported in this browser.");
+    return;
+  }
+
+  try {
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") {
+      if (isManual) toast.error("Notification permission denied. Please enable it in browser settings.");
+      return;
+    }
+
+    const registration = await navigator.serviceWorker.register("/sw.js");
+    await navigator.serviceWorker.ready;
+
+    let subscription = await registration.pushManager.getSubscription();
+
+    if (!subscription) {
+      if (!VAPID_PUBLIC_KEY) {
+         console.warn("VAPID_PUBLIC_KEY is not defined");
+         if (isManual) toast.error("Notification setup error: VAPID key missing.");
+         return;
+      }
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+      });
+    }
+
+    const response = await fetch(`${API_BASE_URL}/api/notifications/subscribe`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        userId,
+        subscription,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error("Failed to subscribe on backend");
+    }
+
+    if (isManual) toast.success("Notifications enabled successfully!");
+  } catch (error) {
+    console.error("Error subscribing to push notifications:", error);
+    toast.error("Failed to enable push notifications.");
+  }
+};
 
 
 const normalizeItem = (item) => ({
@@ -89,6 +162,12 @@ export default function App() {
       loadItems();
     }
   }, [user?.department]);
+
+  useEffect(() => {
+    if (user?.id) {
+      subscribeToPushNotifications(user.id);
+    }
+  }, [user?.id]);
 
   const handleAuthSuccess = (userData) => {
     const normalizedUser = {
@@ -277,6 +356,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#071017] relative overflow-hidden text-slate-50">
+      <Toaster position="top-right" theme="dark" />
       <div className="absolute inset-0 bg-[radial-gradient(900px_520px_at_8%_-5%,rgba(20,184,166,0.28),transparent_65%),radial-gradient(720px_520px_at_96%_5%,rgba(251,191,36,0.16),transparent_58%),linear-gradient(145deg,#071017_0%,#0d1b24_46%,#13251f_100%)]" />
       <div className="absolute inset-0 opacity-[0.08] bg-[linear-gradient(rgba(255,255,255,0.7)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.7)_1px,transparent_1px)] bg-[size:64px_64px]" />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_110%,rgba(45,212,191,0.16),transparent_42%)]" />
@@ -307,6 +387,7 @@ export default function App() {
           setIsSidebarOpen(false);
           setIsProfileModalOpen(true);
         }}
+        onEnableNotifications={() => subscribeToPushNotifications(user.id, true)}
       />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative z-10">
