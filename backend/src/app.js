@@ -20,6 +20,10 @@ const app = express();
 const frontendDistPath = path.resolve(__dirname, "../../frontend/dist");
 const AVAILABLE_DEPARTMENTS = ["IIPS"];
 
+function isWebPushConfigured() {
+  return Boolean(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY);
+}
+
 function emitItemEvent(eventName, department, payload) {
   const io = app.get("io");
 
@@ -76,7 +80,7 @@ async function createNotificationsForUsers({ excludeUserId, title, message, type
     const userIds = users.map((u) => u._id);
     const subscriptions = await PushSubscription.find({ userId: { $in: userIds } });
 
-    if (subscriptions.length > 0 && process.env.VAPID_PUBLIC_KEY) {
+    if (subscriptions.length > 0 && isWebPushConfigured()) {
       const payload = JSON.stringify({
         title,
         message,
@@ -95,6 +99,8 @@ async function createNotificationsForUsers({ excludeUserId, title, message, type
       });
 
       await Promise.all(pushPromises);
+    } else if (subscriptions.length > 0) {
+      console.warn("Push subscriptions exist, but VAPID keys are not configured on this server.");
     }
   } catch (error) {
     console.error("Failed to send push notifications:", error);
@@ -121,6 +127,8 @@ app.get("/api/health", (_req, res) => {
 app.get("/api/config", (_req, res) => {
   res.json({
     departments: AVAILABLE_DEPARTMENTS,
+    vapidPublicKey: process.env.VAPID_PUBLIC_KEY || "",
+    pushConfigured: isWebPushConfigured(),
   });
 });
 
@@ -537,6 +545,10 @@ app.post("/api/notifications/subscribe", async (req, res) => {
 
     if (!userId || !subscription) {
       return res.status(400).json({ message: "User id and subscription are required" });
+    }
+
+    if (!isWebPushConfigured()) {
+      return res.status(503).json({ message: "Push notifications are not configured on the server" });
     }
 
     const existingSub = await PushSubscription.findOne({ "subscription.endpoint": subscription.endpoint });

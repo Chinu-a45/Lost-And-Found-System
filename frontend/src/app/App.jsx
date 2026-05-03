@@ -16,7 +16,7 @@ import { Toaster, toast } from "sonner";
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
 const API_BASE_URL = import.meta.env.VITE_API_URL || "";
 const SOCKET_URL = API_BASE_URL || window.location.origin;
-const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY || "";
+const FALLBACK_VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY || "";
 const NOTIFICATION_PROMPT_KEY = "lostfound_notification_prompt_shown";
 
 function urlBase64ToUint8Array(base64String) {
@@ -37,6 +37,40 @@ function urlBase64ToUint8Array(base64String) {
     return new Uint8Array(0);
   }
 }
+
+function uint8ArrayToUrlBase64(uint8Array) {
+  let binary = "";
+  uint8Array.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+
+  return window.btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function subscriptionUsesVapidKey(subscription, vapidPublicKey) {
+  const applicationServerKey = subscription.options?.applicationServerKey;
+
+  if (!applicationServerKey) {
+    return true;
+  }
+
+  return uint8ArrayToUrlBase64(new Uint8Array(applicationServerKey)) === vapidPublicKey;
+}
+
+const getRuntimeVapidPublicKey = async () => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/config`);
+    const payload = await response.json();
+
+    if (response.ok && payload.vapidPublicKey) {
+      return payload.vapidPublicKey;
+    }
+  } catch (error) {
+    console.warn("Unable to load runtime VAPID key:", error);
+  }
+
+  return FALLBACK_VAPID_PUBLIC_KEY;
+};
 
 const subscribeToPushNotifications = async (userId, isManual = false) => {
   if (!userId) return;
@@ -82,18 +116,30 @@ const subscribeToPushNotifications = async (userId, isManual = false) => {
       throw new Error(`Service worker registration failed: ${error.message}`);
     }
 
+    const vapidPublicKey = await getRuntimeVapidPublicKey();
+
+    if (!vapidPublicKey) {
+      console.warn("VAPID public key is not defined");
+      if (isManual) toast.error("Notification setup error: VAPID key missing.");
+      return;
+    }
+
     let subscription = await registration.pushManager.getSubscription();
 
-    if (!subscription) {
-      if (!VAPID_PUBLIC_KEY) {
-         console.warn("VAPID_PUBLIC_KEY is not defined");
-         if (isManual) toast.error("Notification setup error: VAPID key missing.");
-         return;
+    if (subscription && !subscriptionUsesVapidKey(subscription, vapidPublicKey)) {
+      try {
+        await subscription.unsubscribe();
+        subscription = null;
+      } catch (error) {
+        throw new Error(`Could not refresh old push subscription: ${error.message}`);
       }
+    }
+
+    if (!subscription) {
       try {
         subscription = await registration.pushManager.subscribe({
           userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
         });
       } catch (error) {
         throw new Error(`Browser push subscription failed: ${error.message}`);
