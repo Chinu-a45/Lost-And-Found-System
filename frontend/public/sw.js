@@ -9,9 +9,6 @@ self.addEventListener("push", function (event) {
           url: data.url || "/",
         },
       };
-          url: data.url || "/",
-        },
-      };
 
       event.waitUntil(self.registration.showNotification(title, options));
     } catch (err) {

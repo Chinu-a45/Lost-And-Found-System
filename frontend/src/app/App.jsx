@@ -15,6 +15,7 @@ import { Toaster, toast } from "sonner";
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
 const API_BASE_URL = import.meta.env.VITE_API_URL || "";
 const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY || "";
+const NOTIFICATION_PROMPT_KEY = "lostfound_notification_prompt_shown";
 
 function urlBase64ToUint8Array(base64String) {
   if (!base64String) return new Uint8Array(0);
@@ -36,20 +37,48 @@ function urlBase64ToUint8Array(base64String) {
 }
 
 const subscribeToPushNotifications = async (userId, isManual = false) => {
+  if (!userId) return;
+
+  if (!("Notification" in window)) {
+    if (isManual) toast.error("Notifications are not supported in this browser.");
+    return;
+  }
+
+  if (!window.isSecureContext) {
+    if (isManual) toast.error("Notifications require HTTPS or localhost.");
+    return;
+  }
+
   if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
     if (isManual) toast.error("Push notifications are not supported in this browser.");
     return;
   }
 
   try {
-    const permission = await Notification.requestPermission();
-    if (permission !== "granted") {
-      if (isManual) toast.error("Notification permission denied. Please enable it in browser settings.");
+    if (Notification.permission === "denied") {
+      if (isManual) toast.error("Notifications are blocked. Please allow them from browser site settings.");
       return;
     }
 
-    const registration = await navigator.serviceWorker.register("/sw.js");
-    await navigator.serviceWorker.ready;
+    if (!isManual && Notification.permission !== "granted") {
+      return;
+    }
+
+    const permission =
+      Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
+
+    if (permission !== "granted") {
+      if (isManual) toast.error("Notification permission was not enabled. Please allow it when prompted.");
+      return;
+    }
+
+    let registration;
+    try {
+      registration = await navigator.serviceWorker.register("/sw.js");
+      await navigator.serviceWorker.ready;
+    } catch (error) {
+      throw new Error(`Service worker registration failed: ${error.message}`);
+    }
 
     let subscription = await registration.pushManager.getSubscription();
 
@@ -59,31 +88,41 @@ const subscribeToPushNotifications = async (userId, isManual = false) => {
          if (isManual) toast.error("Notification setup error: VAPID key missing.");
          return;
       }
-      subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
-      });
+      try {
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+        });
+      } catch (error) {
+        throw new Error(`Browser push subscription failed: ${error.message}`);
+      }
     }
 
-    const response = await fetch(`${API_BASE_URL}/api/notifications/subscribe`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        userId,
-        subscription,
-      }),
-    });
+    let response;
+    try {
+      response = await fetch(`${API_BASE_URL}/api/notifications/subscribe`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          userId,
+          subscription,
+        }),
+      });
+    } catch (error) {
+      throw new Error(`Could not reach notification server: ${error.message}`);
+    }
 
     if (!response.ok) {
-      throw new Error("Failed to subscribe on backend");
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.message || "Notification server rejected the subscription");
     }
 
     if (isManual) toast.success("Notifications enabled successfully!");
   } catch (error) {
     console.error("Error subscribing to push notifications:", error);
-    toast.error("Failed to enable push notifications.");
+    if (isManual) toast.error(error.message || "Failed to enable push notifications.");
   }
 };
 
@@ -166,6 +205,20 @@ export default function App() {
   useEffect(() => {
     if (user?.id) {
       subscribeToPushNotifications(user.id);
+
+      if (
+        "Notification" in window &&
+        Notification.permission === "default" &&
+        localStorage.getItem(NOTIFICATION_PROMPT_KEY) !== user.id
+      ) {
+        localStorage.setItem(NOTIFICATION_PROMPT_KEY, user.id);
+        toast("Enable notifications for lost and found updates?", {
+          action: {
+            label: "Enable",
+            onClick: () => subscribeToPushNotifications(user.id, true),
+          },
+        });
+      }
     }
   }, [user?.id]);
 
