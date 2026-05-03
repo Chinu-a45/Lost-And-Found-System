@@ -20,6 +20,16 @@ const app = express();
 const frontendDistPath = path.resolve(__dirname, "../../frontend/dist");
 const AVAILABLE_DEPARTMENTS = ["IIPS"];
 
+function emitItemEvent(eventName, department, payload) {
+  const io = app.get("io");
+
+  if (!io || !department) {
+    return;
+  }
+
+  io.to(`items:${department}`).emit(eventName, payload);
+}
+
 app.use(express.json({ limit: "10mb" }));
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
@@ -337,7 +347,10 @@ app.post("/api/items", async (req, res) => {
       itemId: item._id,
     });
 
-    return res.status(201).json(item.toJSON());
+    const itemPayload = item.toJSON();
+    emitItemEvent("item:created", item.department, itemPayload);
+
+    return res.status(201).json(itemPayload);
   } catch (error) {
     console.error("Failed to create item:", error);
     if (error.message === "USER_NOT_FOUND") {
@@ -368,7 +381,10 @@ app.patch("/api/items/:id/resolve", async (req, res) => {
     item.isResolved = true;
     await item.save();
 
-    return res.json(item.toJSON());
+    const itemPayload = item.toJSON();
+    emitItemEvent("item:updated", item.department, itemPayload);
+
+    return res.json(itemPayload);
   } catch (error) {
     console.error("Failed to resolve item:", error);
     return res.status(500).json({ message: "Unable to resolve request right now" });
@@ -390,6 +406,11 @@ app.delete("/api/items", async (req, res) => {
     }
 
     await Item.deleteMany({});
+
+    const io = app.get("io");
+    if (io) {
+      io.emit("items:cleared");
+    }
 
     await createNotificationsForUsers({
       excludeUserId: null,
@@ -431,8 +452,11 @@ app.delete("/api/items/:id", async (req, res) => {
     const owner = await User.findById(item.ownerId);
     const itemTitle = item.title;
     const itemLocation = item.location;
+    const itemDepartment = item.department;
 
     await item.deleteOne();
+
+    emitItemEvent("item:deleted", itemDepartment, { id: req.params.id });
 
     if (owner) {
       const notification = await Notification.create({

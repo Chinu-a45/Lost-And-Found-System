@@ -33,9 +33,24 @@ io.on("connection", (socket) => {
 
         socket.leave(`user:${userId}`)
     })
+
+    socket.on("items:join", (department) => {
+        if (!department) {
+            return
+        }
+
+        socket.join(`items:${department}`)
+    })
+
+    socket.on("items:leave", (department) => {
+        if (!department) {
+            return
+        }
+
+        socket.leave(`items:${department}`)
+    })
 })
 
 server.listen(PORT, ()=>{
     console.log(`Server is running on port ${PORT}`)
 });
-

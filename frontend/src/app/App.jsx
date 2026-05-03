@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Plus } from "lucide-react";
 import { GoogleOAuthProvider } from "@react-oauth/google";
+import { io } from "socket.io-client";
 import { Navbar } from "./components/Navbar";
 import { Sidebar } from "./components/Sidebar";
 import { FilterTabs } from "./components/FilterTabs";
@@ -14,6 +15,7 @@ import { Toaster, toast } from "sonner";
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
 const API_BASE_URL = import.meta.env.VITE_API_URL || "";
+const SOCKET_URL = API_BASE_URL || window.location.origin;
 const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY || "";
 const NOTIFICATION_PROMPT_KEY = "lostfound_notification_prompt_shown";
 
@@ -134,6 +136,17 @@ const normalizeItem = (item) => ({
   phone: item.phone || "",
 });
 
+const upsertItem = (items, incomingItem) => {
+  const normalizedItem = normalizeItem(incomingItem);
+  const existingIndex = items.findIndex((item) => item.id === normalizedItem.id);
+
+  if (existingIndex === -1) {
+    return [normalizedItem, ...items];
+  }
+
+  return items.map((item) => (item.id === normalizedItem.id ? normalizedItem : item));
+};
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [departments, setDepartments] = useState(["IIPS"]);
@@ -221,6 +234,48 @@ export default function App() {
       }
     }
   }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.department) {
+      return;
+    }
+
+    const socket = io(SOCKET_URL);
+
+    socket.emit("items:join", user.department);
+
+    socket.on("item:created", (item) => {
+      if (item.department !== user.department) {
+        return;
+      }
+
+      setItems((prevItems) => upsertItem(prevItems, item));
+    });
+
+    socket.on("item:updated", (item) => {
+      if (item.department !== user.department) {
+        return;
+      }
+
+      setItems((prevItems) => upsertItem(prevItems, item));
+      setSelectedItem((current) => (current?.id === item.id ? normalizeItem(item) : current));
+    });
+
+    socket.on("item:deleted", ({ id }) => {
+      setItems((prevItems) => prevItems.filter((item) => item.id !== id));
+      setSelectedItem((current) => (current?.id === id ? null : current));
+    });
+
+    socket.on("items:cleared", () => {
+      setItems([]);
+      setSelectedItem(null);
+    });
+
+    return () => {
+      socket.emit("items:leave", user.department);
+      socket.disconnect();
+    };
+  }, [user?.department]);
 
   const handleAuthSuccess = (userData) => {
     const normalizedUser = {
